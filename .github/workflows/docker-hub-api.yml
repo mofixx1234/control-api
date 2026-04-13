@@ -1,4 +1,4 @@
-# CI : build de l'image Docker de l'API et publication sur Docker Hub.
+# CI : build de l'image Docker de l'API et publication sur Docker Hub//.
 name: it-stock-api
 
 # Déclenché uniquement sur les branches de livraison (adapter la liste si besoin).
