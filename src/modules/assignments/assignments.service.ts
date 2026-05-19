@@ -58,6 +58,7 @@ export class AssignmentsService {
 
         if (
           asset.status === AssetStatus.EN_PANNE ||
+          asset.status === AssetStatus.EN_PRET ||
           asset.status === AssetStatus.EN_REPARATION ||
           asset.status === AssetStatus.HORS_SERVICE
         ) {
@@ -183,6 +184,68 @@ export class AssignmentsService {
     }
   }
 
+  async listAssignmentsForPrint() {
+    logger.debug('[AssignmentsService] Listing des affectations (impression)');
+
+    const assignments = await prisma.assignment.findMany({
+      orderBy: [{ assetId: 'asc' }, { startDate: 'asc' }],
+      include: {
+        asset: {
+          select: {
+            id: true,
+            inventoryNumber: true,
+            serial_number: true,
+            type: true,
+            brand: true,
+            model: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    logger.debug(
+      { count: assignments.length },
+      '[AssignmentsService] Listing des affectations (impression) terminé',
+    );
+
+    return assignments;
+  }
+
+  async getAssignmentForPrintById(assignmentId: number) {
+    logger.debug(
+      { assignmentId },
+      '[AssignmentsService] Chargement de l affectation (impression) par identifiant',
+    );
+
+    const assignment = await prisma.assignment.findUnique({
+      where: { id: assignmentId },
+      include: {
+        asset: {
+          select: {
+            id: true,
+            inventoryNumber: true,
+            serial_number: true,
+            type: true,
+            brand: true,
+            model: true,
+            status: true,
+          },
+        },
+      },
+    });
+
+    if (!assignment) {
+      logger.warn(
+        { assignmentId },
+        '[AssignmentsService] Affectation introuvable pour impression',
+      );
+      return null;
+    }
+
+    return assignment;
+  }
+
   async endAssignment(assignmentId: number) {
     logger.info(
       { assignmentId },
@@ -230,7 +293,7 @@ export class AssignmentsService {
         const updatedAsset = await tx.asset.update({
           where: { id: assignment.assetId },
           data: {
-            status: AssetStatus.EN_STOCK,
+            status: AssetStatus.EN_STOCK_NON_AFFECTE,
           },
         });
 

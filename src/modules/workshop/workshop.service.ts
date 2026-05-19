@@ -14,23 +14,12 @@ import { RepairFilterDto } from './dto/filter-repairs.dto';
 
 export class WorkshopService {
   /**
-   * Liste les réparations (avec incident + matériel), optionnellement filtrées par statut.
+   * Liste toutes les réparations (avec incident + matériel), y compris TERMINE.
    */
-  async listRepairs(params: RepairFilterDto) {
-    const { status } = params;
-
-    const where: Prisma.RepairWhereInput = {};
-    if (status != null) {
-      where.status = status;
-    }
-
-    logger.debug(
-      { status },
-      '[WorkshopService] Listing des réparations',
-    );
+  async listRepairs(_params: RepairFilterDto) {
+    logger.debug('[WorkshopService] Listing complet des réparations');
 
     const repairs = await prisma.repair.findMany({
-      where,
       orderBy: { workshopEntryDate: 'desc' },
       include: {
         incident: {
@@ -101,11 +90,71 @@ export class WorkshopService {
   }
 
   /**
+   * Récupère les données nécessaires à l'impression de la fiche d'intervention atelier.
+   */
+  async getRepairPrintPayload(id: number) {
+    if (!Number.isInteger(id) || id < 1) {
+      throw new HttpError(
+        400,
+        "L'identifiant de la réparation doit être un entier strictement positif.",
+        'INVALID_REPAIR_ID',
+      );
+    }
+
+    logger.debug({ id }, '[WorkshopService] Récupération des données de fiche PDF');
+
+    const repair = await prisma.repair.findUnique({
+      where: { id },
+      include: {
+        incident: {
+          include: {
+            asset: {
+              select: {
+                id: true,
+                inventoryNumber: true,
+                serial_number: true,
+                type: true,
+                brand: true,
+                model: true,
+                status: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!repair) {
+      logger.warn({ id }, '[WorkshopService] Réparation introuvable pour impression');
+      return null;
+    }
+
+    const history = await prisma.historyEvent.findMany({
+      where: {
+        assetId: repair.incident.asset.id,
+        type: {
+          in: [HistoryEventType.REPAIR_STARTED, HistoryEventType.REPAIR_FINISHED],
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return {
+      repair,
+      history,
+    };
+  }
+
+  /**
    * Démarrer une réparation : incident ouvert → réparation EN_COURS, matériel EN_REPARATION.
    */
   async startRepair(data: StartRepairDto) {
     logger.info(
-      { incidentId: data.incidentId, workshopEntryDate: data.workshopEntryDate },
+      {
+        incidentId: data.incidentId,
+        workshopEntryDate: data.workshopEntryDate,
+        technicianName: data.technicianName,
+      },
       '[WorkshopService] Démarrage d\'une réparation demandé',
     );
 
@@ -158,6 +207,7 @@ export class WorkshopService {
         const repair = await tx.repair.create({
           data: {
             incidentId: data.incidentId,
+            technicianName: data.technicianName ?? null,
             workshopEntryDate: data.workshopEntryDate,
             action: data.action ?? null,
             cost: data.cost != null ? new Prisma.Decimal(data.cost) : null,
@@ -179,6 +229,7 @@ export class WorkshopService {
               repairId: repair.id,
               incidentId: incident.id,
               workshopEntryDate: repair.workshopEntryDate.toISOString(),
+              technicianName: repair.technicianName,
               action: repair.action,
               cost: repair.cost != null ? Number(repair.cost) : null,
               previousAssetStatus,
@@ -306,12 +357,14 @@ export class WorkshopService {
         const incident = repair.incident;
         const assetId = incident.assetId;
         const previousAssetStatus = incident.asset.status;
+        const workshopExitDate = new Date();
 
         await tx.repair.update({
           where: { id: repairId },
           data: {
             status: RepairStatus.TERMINE,
             outcome: data.outcome,
+            workshopExitDate,
           },
         });
 
@@ -333,6 +386,7 @@ export class WorkshopService {
               repairId,
               incidentId: incident.id,
               outcome: data.outcome,
+              workshopExitDate: workshopExitDate.toISOString(),
               previousAssetStatus,
               newAssetStatus: data.outcome,
             },

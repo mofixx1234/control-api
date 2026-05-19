@@ -1,6 +1,7 @@
 export interface StartRepairDto {
   incidentId: number;
   workshopEntryDate: Date;
+  technicianName: string;
   action?: string;
   cost?: number;
 }
@@ -37,6 +38,14 @@ export const validateStartRepairDto = (
     errors.push("L'action doit être une chaîne de caractères.");
   }
 
+  if (body.technicianName == null) {
+    errors.push('Le nom du réparateur (technicianName) est requis.');
+  } else if (typeof body.technicianName !== 'string') {
+    errors.push('Le nom du réparateur doit être une chaîne de caractères.');
+  } else if (String(body.technicianName).trim().length === 0) {
+    errors.push('Le nom du réparateur ne peut pas être vide.');
+  }
+
   if (body.cost != null) {
     const num = Number(body.cost);
     if (Number.isNaN(num) || num < 0) {
@@ -52,6 +61,7 @@ export const validateStartRepairDto = (
   const value: StartRepairDto = {
     incidentId,
     workshopEntryDate: parsedDate!,
+    technicianName: String(body.technicianName).trim(),
     action: body.action != null ? String(body.action).trim() : undefined,
     cost: body.cost != null ? Number(body.cost) : undefined,
   };
